@@ -10,7 +10,32 @@
     h2 {
       font-size: 14px;
       font-weight: 600;
-      margin: 0 0 16px 0;
+      margin: 0 0 12px 0;
+    }
+    h3 {
+      font-size: 12px;
+      font-weight: 500;
+      margin: 16px 0 8px 0;
+      color: #333;
+    }
+    .languages {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .language-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .language-option input[type="checkbox"] {
+      cursor: pointer;
+    }
+    .language-option label {
+      font-size: 11px;
+      cursor: pointer;
+      user-select: none;
     }
     button {
       width: 100%;
@@ -29,16 +54,97 @@
     button:active {
       background: #0B7DD1;
     }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
   <h2>Static Ad Translation Exporter</h2>
-  <button id="export">Export selected frame → Webhook</button>
+
+  <h3>Select target languages:</h3>
+  <div class="languages">
+    <div class="language-option">
+      <input type="checkbox" id="lang-es" value="es" checked>
+      <label for="lang-es">Spanish (es)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-fr" value="fr">
+      <label for="lang-fr">French (fr)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-de" value="de">
+      <label for="lang-de">German (de)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-it" value="it">
+      <label for="lang-it">Italian (it)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-pt" value="pt">
+      <label for="lang-pt">Portuguese (pt)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-nl" value="nl">
+      <label for="lang-nl">Dutch (nl)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-pl" value="pl">
+      <label for="lang-pl">Polish (pl)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-sv" value="sv">
+      <label for="lang-sv">Swedish (sv)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-lt" value="lt">
+      <label for="lang-lt">Lithuanian (lt)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-tr" value="tr">
+      <label for="lang-tr">Turkish (tr)</label>
+    </div>
+    <div class="language-option">
+      <input type="checkbox" id="lang-no" value="no">
+      <label for="lang-no">Norwegian (no)</label>
+    </div>
+  </div>
+
+  <button id="export">Export & Translate</button>
 
   <script>
-    document.getElementById('export').onclick = () => {
-      parent.postMessage({ pluginMessage: { type: 'export-frame' } }, '*');
+    const exportButton = document.getElementById('export');
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+
+    function updateButtonState() {
+      const selected = Array.from(checkboxes).filter(cb => cb.checked);
+      exportButton.disabled = selected.length === 0;
+      exportButton.textContent = selected.length > 0
+        ? `Export & Translate (${selected.length} ${selected.length === 1 ? 'language' : 'languages'})`
+        : 'Select at least one language';
     }
+
+    checkboxes.forEach(cb => {
+      cb.addEventListener('change', updateButtonState);
+    });
+
+    exportButton.onclick = () => {
+      const selectedLanguages = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+
+      if (selectedLanguages.length > 0) {
+        parent.postMessage({
+          pluginMessage: {
+            type: 'export-frame',
+            languages: selectedLanguages
+          }
+        }, '*');
+      }
+    }
+
+    updateButtonState();
   </script>
 </body>
 </html>

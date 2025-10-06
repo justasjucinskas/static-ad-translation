@@ -4,7 +4,7 @@ const WEBHOOK_URL = 'https://n8n.flmng.tools/webhook-test/7a7db071-5fe1-449e-85c
 const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 const CHUNK_SIZE = 200; // nodes per chunk
 
-figma.showUI(__html__, { width: 300, height: 120 });
+figma.showUI(__html__, { width: 300, height: 470 });
 
 interface TextNodeData {
   nodeId: string;
@@ -26,6 +26,7 @@ interface Payload {
   };
   texts: TextNodeData[];
   chunk?: { index: number; total: number };
+  lang?: string;
 }
 
 interface TranslationResponse {
@@ -53,7 +54,7 @@ interface ParsedHTMLSegment {
   };
 }
 
-figma.ui.onmessage = async (msg: { type: string }) => {
+figma.ui.onmessage = async (msg: { type: string; languages?: string[] }) => {
   if (msg.type === 'export-frame') {
     try {
       // Validate selection
@@ -69,6 +70,7 @@ figma.ui.onmessage = async (msg: { type: string }) => {
       }
 
       const frame = selected as FrameNode;
+      const languages = msg.languages || ['es']; // Default to Spanish if not provided
 
       // Extract data
       const textNodes: TextNodeData[] = [];
@@ -95,7 +97,7 @@ figma.ui.onmessage = async (msg: { type: string }) => {
       const fileName = figma.root.name;
       const pageName = figma.currentPage.name;
 
-      const basePayload: Omit<Payload, 'texts' | 'chunk'> = {
+      const basePayload: Omit<Payload, 'texts' | 'chunk' | 'lang'> = {
         meta: {
           fileKey,
           fileName,
@@ -111,48 +113,59 @@ figma.ui.onmessage = async (msg: { type: string }) => {
       // Check payload size and chunk if needed
       const testPayload = JSON.stringify({ ...basePayload, texts: textNodes });
 
-      let translationResponse: TranslationResponse | null = null;
+      const duplicatedFrames: FrameNode[] = [];
 
-      if (testPayload.length > MAX_PAYLOAD_SIZE) {
-        // Chunk the texts
-        const chunks: TextNodeData[][] = [];
-        for (let i = 0; i < textNodes.length; i += CHUNK_SIZE) {
-          chunks.push(textNodes.slice(i, i + CHUNK_SIZE));
-        }
+      // Process each language
+      for (let langIndex = 0; langIndex < languages.length; langIndex++) {
+        const lang = languages[langIndex];
+        figma.notify(`🔄 Translating to ${lang.toUpperCase()} (${langIndex + 1}/${languages.length})...`);
 
-        let totalSent = 0;
-        for (let i = 0; i < chunks.length; i++) {
-          const payload: Payload = {
-            ...basePayload,
-            texts: chunks[i],
-            chunk: { index: i + 1, total: chunks.length },
-          };
+        let translationResponse: TranslationResponse | null = null;
 
-          const response = await postToWebhook(payload);
-          if (i === chunks.length - 1 && response) {
-            translationResponse = response;
+        if (testPayload.length > MAX_PAYLOAD_SIZE) {
+          // Chunk the texts
+          const chunks: TextNodeData[][] = [];
+          for (let i = 0; i < textNodes.length; i += CHUNK_SIZE) {
+            chunks.push(textNodes.slice(i, i + CHUNK_SIZE));
           }
-          totalSent += chunks[i].length;
+
+          let totalSent = 0;
+          for (let i = 0; i < chunks.length; i++) {
+            const payload: Payload = {
+              ...basePayload,
+              texts: chunks[i],
+              chunk: { index: i + 1, total: chunks.length },
+              lang,
+            };
+
+            const response = await postToWebhook(payload);
+            if (i === chunks.length - 1 && response) {
+              translationResponse = response;
+            }
+            totalSent += chunks[i].length;
+          }
+        } else {
+          const payload: Payload = { ...basePayload, texts: textNodes, lang };
+          translationResponse = await postToWebhook(payload);
         }
 
-        figma.notify(`✅ Sent ${totalSent} text nodes in ${chunks.length} chunks to webhook`);
-      } else {
-        const payload: Payload = { ...basePayload, texts: textNodes };
-        translationResponse = await postToWebhook(payload);
-        figma.notify(`✅ Sent ${textNodes.length} text nodes to webhook`);
+        // Apply translation if received
+        if (translationResponse && translationResponse.texts && translationResponse.texts.length > 0) {
+          console.log(`Translation response for ${lang}:`, JSON.stringify(translationResponse, null, 2));
+          const duplicatedFrame = await applyTranslation(frame, translationResponse, langIndex);
+          duplicatedFrames.push(duplicatedFrame);
+        } else {
+          console.log(`No translation response received for ${lang} or empty texts array`);
+          console.log('Response:', translationResponse);
+        }
       }
 
-      // Apply translation if received
-      if (translationResponse && translationResponse.texts && translationResponse.texts.length > 0) {
-        console.log('Translation response:', JSON.stringify(translationResponse, null, 2));
-        figma.notify('🔄 Applying translation to duplicated frame...');
-        const duplicatedFrame = await applyTranslation(frame, translationResponse);
-        figma.currentPage.selection = [duplicatedFrame];
-        figma.viewport.scrollAndZoomIntoView([duplicatedFrame]);
-        figma.notify(`✅ Translation applied! Lang: ${translationResponse.lang}`);
-      } else {
-        console.log('No translation response received or empty texts array');
-        console.log('Response:', translationResponse);
+      // Select all duplicated frames
+      if (duplicatedFrames.length > 0) {
+        figma.currentPage.selection = duplicatedFrames;
+        figma.viewport.scrollAndZoomIntoView(duplicatedFrames);
+        const langList = languages.join(', ');
+        figma.notify(`✅ Translated to ${languages.length} language${languages.length === 1 ? '' : 's'}: ${langList}`);
       }
 
       figma.closePlugin();
@@ -490,7 +503,8 @@ async function postToWebhook(payload: Payload): Promise<TranslationResponse | nu
 
 async function applyTranslation(
   originalFrame: FrameNode,
-  translation: TranslationResponse
+  translation: TranslationResponse,
+  langIndex: number
 ): Promise<FrameNode> {
   // Create a map of original nodeId -> translated HTML
   const translationMap = new Map<string, string>();
@@ -503,7 +517,7 @@ async function applyTranslation(
   // Duplicate the frame
   const duplicate = originalFrame.clone();
   duplicate.name = `${originalFrame.name} [${translation.lang}]`;
-  duplicate.x = originalFrame.x + originalFrame.width + 100;
+  duplicate.x = originalFrame.x + (originalFrame.width + 100) * (langIndex + 1);
 
   // Collect all text nodes from the original frame to build node ID mapping
   const originalTextNodes: TextNode[] = [];

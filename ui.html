@@ -7,6 +7,17 @@
       padding: 16px;
       margin: 0;
     }
+    .view {
+      display: none !important;
+    }
+    .view.active {
+      display: block !important;
+    }
+    .review-view.active {
+      display: flex !important;
+      flex-direction: column;
+      height: calc(100vh - 32px);
+    }
     h2 {
       font-size: 14px;
       font-weight: 600;
@@ -58,13 +69,140 @@
       background: #ccc;
       cursor: not-allowed;
     }
+
+    /* Review UI Styles */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    .counter {
+      font-size: 11px;
+      color: #666;
+      font-weight: 500;
+    }
+    .nav-controls {
+      display: flex;
+      gap: 4px;
+    }
+    .nav-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      color: #333;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-btn:hover:not(:disabled) {
+      background: #f5f5f5;
+      border-color: #999;
+    }
+    .nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    .field {
+      margin-bottom: 16px;
+    }
+    .field-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .node-id {
+      font-size: 10px;
+      color: #999;
+      font-family: 'Monaco', 'Menlo', monospace;
+      background: #f5f5f5;
+      padding: 4px 8px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+    .source-text {
+      font-size: 12px;
+      color: #333;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #e5e5e5;
+      line-height: 1.4;
+      min-height: 40px;
+    }
+    .translation-input {
+      width: 100%;
+      font-size: 12px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      resize: vertical;
+      min-height: 60px;
+      font-family: inherit;
+      box-sizing: border-box;
+    }
+    .translation-input:focus {
+      outline: none;
+      border-color: #18A0FB;
+      box-shadow: 0 0 0 2px rgba(24, 160, 251, 0.1);
+    }
+    .footer {
+      border-top: 1px solid #e5e5e5;
+      padding-top: 16px;
+    }
+    .btn-primary {
+      width: 100%;
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #18A0FB;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #0D8CE8;
+    }
+    .btn-primary:active {
+      background: #0B7DD1;
+    }
+    .btn-primary:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .lang-badge {
+      display: inline-block;
+      background: #18A0FB;
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
-  <h2>Static Ad Translation Exporter</h2>
+  <!-- Export View -->
+  <div id="export-view" class="view active">
+    <h2>Static Ad Translation Exporter</h2>
 
-  <h3>Select target languages:</h3>
-  <div class="languages">
+    <h3>Select target languages:</h3>
+    <div class="languages">
     <div class="language-option">
       <input type="checkbox" id="lang-es" value="es" checked>
       <label for="lang-es">Spanish (es)</label>
@@ -112,10 +250,66 @@
   </div>
 
   <button id="export">Export & Translate</button>
+  </div>
+
+  <!-- Review View -->
+  <div id="review-view" class="view review-view">
+    <div class="header">
+      <div>
+        <h2>Review New Translations <span class="lang-badge" id="lang-badge"></span></h2>
+        <div class="counter" id="counter">Translation 1 of 1</div>
+      </div>
+      <div class="nav-controls">
+        <button class="nav-btn" id="prev-btn" title="Previous (←)">←</button>
+        <button class="nav-btn" id="next-btn" title="Next (→)">→</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="field">
+        <div class="field-label">Node ID</div>
+        <div class="node-id" id="node-id">—</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Original Text (English)</div>
+        <div class="source-text" id="original-text">—</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Translation (Editable)</div>
+        <textarea class="translation-input" id="translation-input" placeholder="Enter translation..."></textarea>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="btn-primary" id="apply-btn" style="margin-bottom: 8px;" disabled>Apply Changes to Frame</button>
+      <button class="btn-primary" id="upload-btn">Upload All Translations</button>
+    </div>
+  </div>
 
   <script>
+    // Export View
     const exportButton = document.getElementById('export');
     const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const exportView = document.getElementById('export-view');
+    const reviewView = document.getElementById('review-view');
+
+    // Review View
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const uploadBtn = document.getElementById('upload-btn');
+    const applyBtn = document.getElementById('apply-btn');
+    const counter = document.getElementById('counter');
+    const nodeId = document.getElementById('node-id');
+    const originalText = document.getElementById('original-text');
+    const translationInput = document.getElementById('translation-input');
+    const langBadge = document.getElementById('lang-badge');
+
+    let translations = [];
+    let currentIndex = 0;
+    let currentLang = '';
+    let hasUnsavedChanges = false;
 
     function updateButtonState() {
       const selected = Array.from(checkboxes).filter(cb => cb.checked);
@@ -143,6 +337,140 @@
         }, '*');
       }
     }
+
+    // Review View Functions
+    function switchToReview() {
+      exportView.classList.remove('active');
+      reviewView.classList.add('active');
+    }
+
+    function switchToExport() {
+      reviewView.classList.remove('active');
+      exportView.classList.add('active');
+    }
+
+    function renderCurrent() {
+      if (translations.length === 0) return;
+
+      const current = translations[currentIndex];
+
+      // Update counter
+      counter.textContent = `Translation ${currentIndex + 1} of ${translations.length}`;
+
+      // Update node ID
+      nodeId.textContent = current.nodeId;
+
+      // Update original text (English)
+      originalText.textContent = current.charactersOriginal;
+
+      // Update translation input
+      translationInput.value = current.charactersTranslated;
+
+      // Reset change tracking for this translation
+      hasUnsavedChanges = false;
+      updateApplyButton();
+
+      // Update navigation buttons
+      prevBtn.disabled = currentIndex === 0;
+      nextBtn.disabled = currentIndex === translations.length - 1;
+
+      // Notify plugin to highlight this node
+      parent.postMessage({
+        pluginMessage: {
+          type: 'highlight-node',
+          nodeId: current.nodeId
+        }
+      }, '*');
+    }
+
+    function updateApplyButton() {
+      if (translations.length === 0) return;
+      const current = translations[currentIndex];
+      const currentValue = translationInput.value;
+
+      // Check if current value differs from what's stored
+      hasUnsavedChanges = currentValue !== current.charactersTranslated;
+      applyBtn.disabled = !hasUnsavedChanges;
+    }
+
+    function saveCurrentEdit() {
+      if (translations.length === 0) return;
+      translations[currentIndex].charactersTranslated = translationInput.value;
+    }
+
+    prevBtn.onclick = () => {
+      if (currentIndex > 0) {
+        saveCurrentEdit();
+        currentIndex--;
+        renderCurrent();
+      }
+    };
+
+    nextBtn.onclick = () => {
+      if (currentIndex < translations.length - 1) {
+        saveCurrentEdit();
+        currentIndex++;
+        renderCurrent();
+      }
+    };
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (reviewView.classList.contains('active')) {
+        if (e.key === 'ArrowLeft' && !prevBtn.disabled) {
+          prevBtn.click();
+        } else if (e.key === 'ArrowRight' && !nextBtn.disabled) {
+          nextBtn.click();
+        }
+      }
+    });
+
+    // Track changes in translation input
+    translationInput.addEventListener('input', updateApplyButton);
+
+    // Save on blur
+    translationInput.addEventListener('blur', saveCurrentEdit);
+
+    // Apply changes to frame
+    applyBtn.onclick = () => {
+      saveCurrentEdit();
+      parent.postMessage({
+        pluginMessage: {
+          type: 'apply-changes',
+          translation: translations[currentIndex],
+          lang: currentLang
+        }
+      }, '*');
+      hasUnsavedChanges = false;
+      updateApplyButton();
+    };
+
+    uploadBtn.onclick = () => {
+      saveCurrentEdit();
+      parent.postMessage({
+        pluginMessage: {
+          type: 'upload-translations',
+          translations: translations,
+          lang: currentLang
+        }
+      }, '*');
+    };
+
+    // Listen for messages from plugin
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+
+      if (msg.type === 'load-review') {
+        translations = msg.translations;
+        currentLang = msg.lang;
+        currentIndex = 0;
+        langBadge.textContent = currentLang;
+        switchToReview();
+        renderCurrent();
+      } else if (msg.type === 'switch-to-export') {
+        switchToExport();
+      }
+    };
 
     updateButtonState();
   </script>

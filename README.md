@@ -10,6 +10,11 @@ A Figma plugin for extracting text from ad frames, sending it to a translation w
 - **HTML Export**: Generates styled HTML with inline CSS for each text segment, preserving exact formatting
 - **Optimized Payload**: Minimal data structure containing only translation-essential information
 - **Webhook Integration**: Posts structured JSON to a translation endpoint for each selected language
+- **Translation Memory Review**: Interactive review interface for new translations with:
+  - Side-by-side display of original, source, and translated text
+  - Real-time node highlighting in the duplicated frame
+  - Inline editing with live preview functionality
+  - Change detection (Apply button only enabled when edits are made)
 - **Automatic Import**: Creates translated frame copies applying all styles from returned HTML (fonts, sizes, colors, spacing)
 - **Comprehensive Style Application**: Applies font-family, font-size, font-weight (400/500/600/700/900), colors (rgb/rgba), letter-spacing (em/px/%), line-height (unitless/px/%)
 - **Large Payload Handling**: Automatically chunks payloads >5MB into batches
@@ -19,8 +24,20 @@ A Figma plugin for extracting text from ad frames, sending it to a translation w
 1. **Select Languages**: Choose one or more target languages from the plugin UI (Spanish checked by default)
 2. **Export**: Select a frame and click "Export & Translate (X languages)"
 3. **Translate**: The plugin sends separate webhook requests for each selected language
-4. **Import**: Receives translated HTML for each language and creates duplicated frames with translations applied
-5. **Result**: New frames positioned horizontally next to original, each named `[original] [lang]` (e.g., "Ad Frame [es]", "Ad Frame [fr]")
+4. **Review New Translations** (if applicable):
+   - If the response includes translations marked as `isNew: true`, a review interface appears
+   - Navigate through new translations using Previous/Next buttons or arrow keys
+   - Each translation shows:
+     - Node ID
+     - Original text (English source)
+     - Source text from backend response
+     - Translated text (editable)
+   - The corresponding text node is automatically highlighted in the duplicated frame
+   - Edit translations as needed
+   - **Apply Changes to Frame**: Click to preview edited translations in the design (button only enabled when changes are made)
+   - **Upload All Translations**: Save all reviewed translations to translation memory
+5. **Import**: Receives translated HTML for each language and creates duplicated frames with translations applied
+6. **Result**: New frames positioned horizontally next to original, each named `[original] [lang]` (e.g., "Ad Frame [es]", "Ad Frame [fr]")
 
 ## Translation Response Format
 
@@ -35,11 +52,25 @@ The webhook should return:
   "texts": [
     {
       "nodeId": "123:457",
-      "html": "<span style=\"font-weight:700\">Translated text</span>"
+      "characters": "Source text",
+      "html": "<span style=\"font-weight:700\">Translated text</span>",
+      "isNew": true
+    },
+    {
+      "nodeId": "123:458",
+      "characters": "Another text",
+      "html": "<span style=\"font-weight:400\">Otro texto</span>",
+      "isNew": false
     }
   ]
 }
 ```
+
+**New Fields:**
+- `characters` - The original source text (used for review interface)
+- `isNew` - Boolean flag indicating if this translation is new and requires review
+  - `true` - Shows in review interface, allows editing, uploads to translation memory
+  - `false` - Applied directly to frame, bypasses review
 
 ## Payload Structure
 
@@ -149,12 +180,38 @@ The plugin applies these CSS properties from the webhook HTML response:
 - **Watch mode**: `npm run watch`
 - **Lint**: `npm run lint`
 
+## Translation Memory Upload
+
+After users review and approve new translations, the plugin uploads them to a separate endpoint for storage in the translation memory database.
+
+**Upload Endpoint Format:**
+
+```json
+{
+  "texts": [
+    {
+      "nodeId": "123:457",
+      "characters": "Source text",
+      "characters_translated": "Translated text"
+    },
+    {
+      "nodeId": "123:459",
+      "characters": "Another source",
+      "characters_translated": "Another translation"
+    }
+  ]
+}
+```
+
+**Note:** Only translations where `isNew: true` are uploaded to this endpoint.
+
 ## Configuration
 
-Update the webhook URL in [code.ts:3](code.ts#L3):
+Update the webhook URLs in [code.ts](code.ts):
 
 ```typescript
 const WEBHOOK_URL = 'https://your-endpoint.com/webhook';
+const UPLOAD_URL = 'https://your-endpoint.com/upload-translations';
 ```
 
 Then rebuild: `npm run build`

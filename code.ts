@@ -1,10 +1,26 @@
 // Figma plugin for extracting text with mixed-style ranges and posting to webhook
 
 const WEBHOOK_URL = 'https://n8n.flmng.tools/webhook-test/7a7db071-5fe1-449e-85c6-4463ffd3de84';
+const UPLOAD_URL = 'https://n8n.flmng.tools/webhook-test/upload-translations'; // Update with actual endpoint
 const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 const CHUNK_SIZE = 200; // nodes per chunk
 
 figma.showUI(__html__, { width: 300, height: 470 });
+
+// State management for review workflow
+interface ReviewState {
+  duplicatedFrames: Map<string, FrameNode>; // lang -> frame
+  originalFrames: Map<string, FrameNode>; // lang -> original frame
+  pendingReviews: Map<string, ReviewTranslation[]>; // lang -> translations to review
+  nodeIdMappings: Map<string, Map<string, TextNode>>; // lang -> (originalNodeId -> duplicateNode)
+}
+
+const reviewState: ReviewState = {
+  duplicatedFrames: new Map(),
+  originalFrames: new Map(),
+  pendingReviews: new Map(),
+  nodeIdMappings: new Map(),
+};
 
 interface TextNodeData {
   nodeId: string;
@@ -36,7 +52,25 @@ interface TranslationResponse {
   dir: string;
   texts: Array<{
     nodeId: string;
+    characters: string;
     html: string;
+    isNew: boolean;
+  }>;
+}
+
+interface ReviewTranslation {
+  nodeId: string;
+  charactersOriginal: string;
+  characters: string;
+  charactersTranslated: string;
+  html: string;
+}
+
+interface UploadPayload {
+  texts: Array<{
+    nodeId: string;
+    characters: string;
+    characters_translated: string;
   }>;
 }
 
@@ -54,7 +88,14 @@ interface ParsedHTMLSegment {
   };
 }
 
-figma.ui.onmessage = async (msg: { type: string; languages?: string[] }) => {
+figma.ui.onmessage = async (msg: {
+  type: string;
+  languages?: string[];
+  nodeId?: string;
+  translations?: ReviewTranslation[];
+  translation?: ReviewTranslation;
+  lang?: string;
+}) => {
   if (msg.type === 'export-frame') {
     try {
       // Validate selection
@@ -154,24 +195,101 @@ figma.ui.onmessage = async (msg: { type: string; languages?: string[] }) => {
           console.log(`Translation response for ${lang}:`, JSON.stringify(translationResponse, null, 2));
           const duplicatedFrame = await applyTranslation(frame, translationResponse, langIndex);
           duplicatedFrames.push(duplicatedFrame);
+
+          // Store the duplicated frame for review workflow
+          reviewState.duplicatedFrames.set(lang, duplicatedFrame);
+          reviewState.originalFrames.set(lang, frame);
+
+          // Check for new translations that need review
+          const newTranslations = translationResponse.texts.filter((t) => t.isNew);
+
+          if (newTranslations.length > 0) {
+            // Create a map of nodeId -> original text for lookup
+            const originalTextMap = new Map<string, string>();
+            for (const textNode of textNodes) {
+              originalTextMap.set(textNode.nodeId, textNode.characters);
+            }
+
+            // Prepare review data
+            const reviewData: ReviewTranslation[] = newTranslations.map((t) => ({
+              nodeId: t.nodeId,
+              charactersOriginal: originalTextMap.get(t.nodeId) || t.characters,
+              characters: t.characters,
+              charactersTranslated: extractPlainTextFromHTML(t.html),
+              html: t.html,
+            }));
+
+            reviewState.pendingReviews.set(lang, reviewData);
+
+            // Build node ID mapping for this language
+            const originalTextNodes: TextNode[] = [];
+            collectTextNodes(frame, originalTextNodes);
+
+            const duplicateTextNodes: TextNode[] = [];
+            collectTextNodes(duplicatedFrame, duplicateTextNodes);
+
+            const nodeMapping = new Map<string, TextNode>();
+            for (let i = 0; i < originalTextNodes.length; i++) {
+              if (i < duplicateTextNodes.length) {
+                nodeMapping.set(originalTextNodes[i].id, duplicateTextNodes[i]);
+              }
+            }
+            reviewState.nodeIdMappings.set(lang, nodeMapping);
+          }
         } else {
           console.log(`No translation response received for ${lang} or empty texts array`);
           console.log('Response:', translationResponse);
         }
       }
 
-      // Select all duplicated frames
-      if (duplicatedFrames.length > 0) {
-        figma.currentPage.selection = duplicatedFrames;
-        figma.viewport.scrollAndZoomIntoView(duplicatedFrames);
-        const langList = languages.join(', ');
-        figma.notify(`✅ Translated to ${languages.length} language${languages.length === 1 ? '' : 's'}: ${langList}`);
-      }
+      // Check if there are any reviews pending
+      if (reviewState.pendingReviews.size > 0) {
+        // Switch to review UI
+        figma.ui.resize(450, 600);
 
-      figma.closePlugin();
+        // Load the first review
+        const firstLang = Array.from(reviewState.pendingReviews.keys())[0];
+        const firstReview = reviewState.pendingReviews.get(firstLang);
+
+        if (firstReview) {
+          // Send review data to UI
+          figma.ui.postMessage({
+            type: 'load-review',
+            translations: firstReview,
+            lang: firstLang,
+          });
+
+          figma.notify(`📝 Please review ${reviewState.pendingReviews.size} language${reviewState.pendingReviews.size === 1 ? '' : 's'}`);
+        }
+      } else {
+        // No reviews needed, proceed with normal completion
+        if (duplicatedFrames.length > 0) {
+          figma.currentPage.selection = duplicatedFrames;
+          figma.viewport.scrollAndZoomIntoView(duplicatedFrames);
+          const langList = languages.join(', ');
+          figma.notify(`✅ Translated to ${languages.length} language${languages.length === 1 ? '' : 's'}: ${langList}`);
+        }
+
+        figma.closePlugin();
+      }
     } catch (error) {
       figma.notify(`❌ Error: ${error}`, { error: true });
       console.error(error);
+    }
+  } else if (msg.type === 'highlight-node') {
+    // Highlight the node in the current duplicated frame
+    if (msg.nodeId) {
+      await highlightNodeInFrame(msg.nodeId);
+    }
+  } else if (msg.type === 'apply-changes') {
+    // Apply the edited translation to the duplicated frame
+    if (msg.translation && msg.lang) {
+      await applyChangesToFrame(msg.translation, msg.lang);
+    }
+  } else if (msg.type === 'upload-translations') {
+    // Upload the finalized translations
+    if (msg.translations && msg.lang) {
+      await uploadTranslations(msg.translations, msg.lang);
     }
   }
 };
@@ -964,4 +1082,190 @@ function parseLineHeight(lhStr: string, fontSize?: number): LineHeight | null {
     }
   }
   return null;
+}
+
+async function highlightNodeInFrame(originalNodeId: string): Promise<void> {
+  // Find which language we're currently reviewing
+  let currentLang = '';
+  for (const [lang, mapping] of reviewState.nodeIdMappings) {
+    if (mapping.has(originalNodeId)) {
+      currentLang = lang;
+      break;
+    }
+  }
+
+  if (!currentLang) {
+    console.warn(`Could not find language for node ${originalNodeId}`);
+    return;
+  }
+
+  const nodeMapping = reviewState.nodeIdMappings.get(currentLang);
+  if (!nodeMapping) return;
+
+  const duplicateNode = nodeMapping.get(originalNodeId);
+  if (duplicateNode) {
+    figma.currentPage.selection = [duplicateNode];
+    figma.viewport.scrollAndZoomIntoView([duplicateNode]);
+  } else {
+    console.warn(`Could not find duplicate node for ${originalNodeId}`);
+  }
+}
+
+async function applyChangesToFrame(
+  translation: ReviewTranslation,
+  lang: string
+): Promise<void> {
+  try {
+    const nodeMapping = reviewState.nodeIdMappings.get(lang);
+    if (!nodeMapping) {
+      figma.notify('⚠️ Could not find node mapping', { error: true });
+      return;
+    }
+
+    const duplicateNode = nodeMapping.get(translation.nodeId);
+    if (!duplicateNode) {
+      figma.notify('⚠️ Could not find text node', { error: true });
+      return;
+    }
+
+    // Update the HTML to reflect the edited translation
+    // Replace the text content in the original HTML while preserving styling
+    const updatedHtml = updateHtmlText(translation.html, translation.charactersTranslated);
+
+    // Update the translation object with the new HTML
+    translation.html = updatedHtml;
+
+    // Apply the updated translation to the node
+    await applyHTMLToTextNode(duplicateNode, updatedHtml);
+
+    figma.notify('✅ Changes applied to frame');
+  } catch (error) {
+    figma.notify(`❌ Failed to apply changes: ${error}`, { error: true });
+    console.error('Apply changes error:', error);
+  }
+}
+
+function updateHtmlText(originalHtml: string, newText: string): string {
+  // Extract the first span's style attributes if they exist
+  const styleMatch = originalHtml.match(/<span[^>]*style="([^"]*)"[^>]*>/);
+  const style = styleMatch ? styleMatch[1] : '';
+
+  // Escape the new text for HTML
+  const escapedText = escapeHtml(newText);
+
+  // Create updated HTML with preserved styling
+  if (style) {
+    return `<span style="${style}">${escapedText}</span>`;
+  } else {
+    return `<span>${escapedText}</span>`;
+  }
+}
+
+async function uploadTranslations(
+  translations: ReviewTranslation[],
+  lang: string
+): Promise<void> {
+  try {
+    figma.notify(`📤 Uploading ${translations.length} translation${translations.length === 1 ? '' : 's'} for ${lang.toUpperCase()}...`);
+
+    const payload: UploadPayload = {
+      texts: translations.map((t) => ({
+        nodeId: t.nodeId,
+        characters: t.characters,
+        characters_translated: t.charactersTranslated,
+      })),
+    };
+
+    const response = await fetch(UPLOAD_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    figma.notify(`✅ Uploaded translations for ${lang.toUpperCase()}`);
+
+    // Apply the edited translations to the duplicated frame
+    const duplicateFrame = reviewState.duplicatedFrames.get(lang);
+    if (duplicateFrame) {
+      await applyEditedTranslations(duplicateFrame, translations, lang);
+    }
+
+    // Clear review state for this language
+    reviewState.pendingReviews.delete(lang);
+    reviewState.nodeIdMappings.delete(lang);
+
+    // Check if there are more reviews pending
+    const nextLang = Array.from(reviewState.pendingReviews.keys())[0];
+    if (nextLang) {
+      // Load next review
+      const nextReviews = reviewState.pendingReviews.get(nextLang);
+      if (nextReviews) {
+        figma.ui.postMessage({
+          type: 'load-review',
+          translations: nextReviews,
+          lang: nextLang,
+        });
+      }
+    } else {
+      // All reviews complete, show all duplicated frames and close
+      const allFrames = Array.from(reviewState.duplicatedFrames.values());
+      if (allFrames.length > 0) {
+        figma.currentPage.selection = allFrames;
+        figma.viewport.scrollAndZoomIntoView(allFrames);
+      }
+
+      // Switch back to main UI
+      figma.ui.resize(300, 470);
+      figma.ui.show();
+
+      figma.notify(`✅ All translations complete!`);
+      figma.closePlugin();
+    }
+  } catch (error) {
+    figma.notify(`❌ Upload failed: ${error}`, { error: true });
+    console.error('Upload error:', error);
+  }
+}
+
+async function applyEditedTranslations(
+  duplicateFrame: FrameNode,
+  translations: ReviewTranslation[],
+  lang: string
+): Promise<void> {
+  const nodeMapping = reviewState.nodeIdMappings.get(lang);
+  if (!nodeMapping) return;
+
+  for (const translation of translations) {
+    const duplicateNode = nodeMapping.get(translation.nodeId);
+    if (duplicateNode) {
+      // Apply the edited translation HTML to the node
+      await applyHTMLToTextNode(duplicateNode, translation.html);
+
+      // Update the characters with the translated text
+      // Parse the HTML to extract plain text
+      const plainText = extractPlainTextFromHTML(translation.html);
+      if (plainText !== duplicateNode.characters) {
+        // Only update if the text actually changed
+        try {
+          duplicateNode.characters = plainText;
+        } catch (e) {
+          console.warn(`Could not update text for node ${translation.nodeId}:`, e);
+        }
+      }
+    }
+  }
+}
+
+function extractPlainTextFromHTML(html: string): string {
+  // Remove HTML tags and decode entities
+  let text = html.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<[^>]+>/g, '');
+  text = decodeHTML(text);
+  return text;
 }

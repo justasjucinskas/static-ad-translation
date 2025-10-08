@@ -8,6 +8,7 @@ A Figma plugin for extracting text from ad frames, sending it to a translation w
 - **Text Extraction**: Extracts all text nodes from a selected frame with full style information (font family, size, weight, colors, decorations, spacing, line-height)
 - **Mixed-Style Support**: Uses `getStyledTextSegments()` to capture character-level styling - handles text with multiple fonts, sizes, colors, and weights within a single text box
 - **HTML Export**: Generates styled HTML with inline CSS for each text segment, preserving exact formatting
+- **Visual Context Export**: Exports frame as base64-encoded PNG for AI-powered translation with visual context
 - **Optimized Payload**: Minimal data structure containing only translation-essential information
 - **Webhook Integration**: Posts structured JSON to a translation endpoint for each selected language
 - **Translation Memory Review**: Interactive review interface for new translations with:
@@ -86,7 +87,8 @@ The plugin sends a minimal, optimized payload containing only translation-essent
   },
   "frame": {
     "id": "123:456",
-    "name": "Ad Frame"
+    "name": "Ad Frame",
+    "image": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
   },
   "texts": [
     {
@@ -99,6 +101,12 @@ The plugin sends a minimal, optimized payload containing only translation-essent
   "lang": "es"
 }
 ```
+
+**New Field:**
+- `frame.image` - Base64-encoded PNG image of the entire frame (1x scale)
+  - Provides visual context to AI for better translation decisions
+  - Includes all design elements, layouts, and styling
+  - Optional field (omitted if export fails)
 
 ## Text Extraction Details
 
@@ -188,20 +196,36 @@ After users review and approve new translations, the plugin uploads them to a se
 
 ```json
 {
-  "texts": [
-    {
-      "nodeId": "123:457",
-      "characters": "Source text",
-      "characters_translated": "Translated text"
-    },
-    {
-      "nodeId": "123:459",
-      "characters": "Another source",
-      "characters_translated": "Another translation"
-    }
-  ]
+  "frame": {
+    "id": "1204:147",
+    "name": "Ad Frame [es]"
+  },
+  "body": {
+    "texts": [
+      {
+        "nodeId": "1204:149",
+        "characters": "HEALTH-TIME.COM",
+        "characters_translated": "HEALTH-TIME.COM"
+      },
+      {
+        "nodeId": "1204:150",
+        "characters": "Results may vary",
+        "characters_translated": "Los resultados pueden variar"
+      }
+    ],
+    "lang": "es"
+  }
 }
 ```
+
+**Fields:**
+- `frame.id` - The duplicated frame's Figma node ID
+- `frame.name` - The duplicated frame's name (includes language suffix)
+- `body.texts` - Array of translations
+  - `nodeId` - The text node's Figma ID
+  - `characters` - Original English source text
+  - `characters_translated` - The translated text
+- `body.lang` - Target language code (e.g., "es", "fr", "de")
 
 **Note:** Only translations where `isNew: true` are uploaded to this endpoint.
 

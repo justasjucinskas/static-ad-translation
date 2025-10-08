@@ -1,7 +1,7 @@
 // Figma plugin for extracting text with mixed-style ranges and posting to webhook
 
-const WEBHOOK_URL = 'https://n8n.flmng.tools/webhook-test/7a7db071-5fe1-449e-85c6-4463ffd3de84';
-const UPLOAD_URL = 'https://n8n.flmng.tools/webhook-test/upload-translations'; // Update with actual endpoint
+const WEBHOOK_URL = 'https://n8n.flmng.tools/webhook/7a7db071-5fe1-449e-85c6-4463ffd3de84';
+const UPLOAD_URL = 'https://n8n.flmng.tools/webhook/022b465e-e27e-4976-ac01-6ef33425e81c';
 const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 const CHUNK_SIZE = 200; // nodes per chunk
 
@@ -39,6 +39,7 @@ interface Payload {
   frame: {
     id: string;
     name: string;
+    image?: string;
   };
   texts: TextNodeData[];
   chunk?: { index: number; total: number };
@@ -67,11 +68,18 @@ interface ReviewTranslation {
 }
 
 interface UploadPayload {
-  texts: Array<{
-    nodeId: string;
-    characters: string;
-    characters_translated: string;
-  }>;
+  frame: {
+    id: string;
+    name: string;
+  };
+  body: {
+    texts: Array<{
+      nodeId: string;
+      characters: string;
+      characters_translated: string;
+    }>;
+    lang: string;
+  };
 }
 
 interface ParsedHTMLSegment {
@@ -133,6 +141,21 @@ figma.ui.onmessage = async (msg: {
       // Second pass: extract data
       await extractNodes(frame, textNodes);
 
+      // Export frame as PNG and convert to base64
+      figma.notify('📸 Exporting frame image...');
+      let frameImageBase64 = '';
+      try {
+        const imageBytes = await frame.exportAsync({
+          format: 'PNG',
+          constraint: { type: 'SCALE', value: 1 },
+        });
+        frameImageBase64 = uint8ArrayToBase64(imageBytes);
+        console.log(`Frame image exported: ${frameImageBase64.length} characters`);
+      } catch (error) {
+        console.warn('Failed to export frame image:', error);
+        figma.notify('⚠️ Could not export frame image', { error: false });
+      }
+
       // Build payload
       const fileKey = figma.fileKey || 'unknown';
       const fileName = figma.root.name;
@@ -148,6 +171,7 @@ figma.ui.onmessage = async (msg: {
         frame: {
           id: frame.id,
           name: frame.name,
+          image: frameImageBase64 || undefined,
         },
       };
 
@@ -1168,12 +1192,25 @@ async function uploadTranslations(
   try {
     figma.notify(`📤 Uploading ${translations.length} translation${translations.length === 1 ? '' : 's'} for ${lang.toUpperCase()}...`);
 
+    // Get the duplicated frame for this language
+    const duplicateFrame = reviewState.duplicatedFrames.get(lang);
+    if (!duplicateFrame) {
+      throw new Error('Could not find duplicated frame');
+    }
+
     const payload: UploadPayload = {
-      texts: translations.map((t) => ({
-        nodeId: t.nodeId,
-        characters: t.characters,
-        characters_translated: t.charactersTranslated,
-      })),
+      frame: {
+        id: duplicateFrame.id,
+        name: duplicateFrame.name,
+      },
+      body: {
+        texts: translations.map((t) => ({
+          nodeId: t.nodeId,
+          characters: t.charactersOriginal,
+          characters_translated: t.charactersTranslated,
+        })),
+        lang: lang,
+      },
     };
 
     const response = await fetch(UPLOAD_URL, {
@@ -1191,7 +1228,6 @@ async function uploadTranslations(
     figma.notify(`✅ Uploaded translations for ${lang.toUpperCase()}`);
 
     // Apply the edited translations to the duplicated frame
-    const duplicateFrame = reviewState.duplicatedFrames.get(lang);
     if (duplicateFrame) {
       await applyEditedTranslations(duplicateFrame, translations, lang);
     }
@@ -1268,4 +1304,26 @@ function extractPlainTextFromHTML(html: string): string {
   text = text.replace(/<[^>]+>/g, '');
   text = decodeHTML(text);
   return text;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  let i = 0;
+  const len = bytes.length;
+
+  while (i < len) {
+    const a = bytes[i++];
+    const b = i < len ? bytes[i++] : 0;
+    const c = i < len ? bytes[i++] : 0;
+
+    const bitmap = (a << 16) | (b << 8) | c;
+
+    result += base64chars.charAt((bitmap >> 18) & 63);
+    result += base64chars.charAt((bitmap >> 12) & 63);
+    result += i > len + 1 ? '=' : base64chars.charAt((bitmap >> 6) & 63);
+    result += i > len ? '=' : base64chars.charAt(bitmap & 63);
+  }
+
+  return result;
 }

@@ -24,21 +24,24 @@ A Figma plugin for extracting text from ad frames, sending it to a translation w
 
 1. **Select Languages**: Choose one or more target languages from the plugin UI (Spanish checked by default)
 2. **Export**: Select a frame and click "Export & Translate (X languages)"
-3. **Translate**: The plugin sends separate webhook requests for each selected language
+3. **Translate**: The plugin sends webhook requests for **all selected languages in parallel** for maximum efficiency
 4. **Review New Translations** (if applicable):
    - If the response includes translations marked as `isNew: true`, a review interface appears
+   - **Language Progress**: Header shows current language being reviewed (e.g., "ES (1/4)" for Spanish, first of 4 languages)
    - Navigate through new translations using Previous/Next buttons or arrow keys
    - Each translation shows:
      - Node ID
      - Original text (English source)
-     - Source text from backend response
-     - Translated text (editable)
+     - Translated text (editable with reverse button)
    - The corresponding text node is automatically highlighted in the duplicated frame
    - Edit translations as needed
+   - **Reverse Button (↶)**: Restore the original translation if accidentally deleted or modified
    - **Apply Changes to Frame**: Click to preview edited translations in the design (button only enabled when changes are made)
+     - Applied changes persist through the upload process
    - **Upload All Translations**: Save all reviewed translations to translation memory
+   - After upload, automatically loads next language for review
 5. **Import**: Receives translated HTML for each language and creates duplicated frames with translations applied
-6. **Result**: New frames positioned horizontally next to original, each named `[original] [lang]` (e.g., "Ad Frame [es]", "Ad Frame [fr]")
+6. **Result**: New frames positioned vertically below original (157px spacing), each named `[original] [lang]` (e.g., "Ad Frame [es]", "Ad Frame [fr]")
 
 ## Translation Response Format
 

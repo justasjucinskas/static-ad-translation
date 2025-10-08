@@ -13,6 +13,7 @@ interface ReviewState {
   originalFrames: Map<string, FrameNode>; // lang -> original frame
   pendingReviews: Map<string, ReviewTranslation[]>; // lang -> translations to review
   nodeIdMappings: Map<string, Map<string, TextNode>>; // lang -> (originalNodeId -> duplicateNode)
+  languageOrder: string[]; // Ordered list of languages with pending reviews
 }
 
 const reviewState: ReviewState = {
@@ -20,6 +21,7 @@ const reviewState: ReviewState = {
   originalFrames: new Map(),
   pendingReviews: new Map(),
   nodeIdMappings: new Map(),
+  languageOrder: [],
 };
 
 interface TextNodeData {
@@ -65,6 +67,7 @@ interface ReviewTranslation {
   characters: string;
   charactersTranslated: string;
   html: string;
+  appliedToFrame?: boolean; // Track if changes have been applied
 }
 
 interface UploadPayload {
@@ -120,6 +123,9 @@ figma.ui.onmessage = async (msg: {
 
       const frame = selected as FrameNode;
       const languages = msg.languages || ['es']; // Default to Spanish if not provided
+
+      // Show initial progress notification
+      figma.notify('🔄 Processing frame...');
 
       // Extract data
       const textNodes: TextNodeData[] = [];
@@ -180,107 +186,134 @@ figma.ui.onmessage = async (msg: {
 
       const duplicatedFrames: FrameNode[] = [];
 
-      // Process each language
-      for (let langIndex = 0; langIndex < languages.length; langIndex++) {
-        const lang = languages[langIndex];
-        figma.notify(`🔄 Translating to ${lang.toUpperCase()} (${langIndex + 1}/${languages.length})...`);
+      // Notify user that translations are starting
+      const langList = languages.map(l => l.toUpperCase()).join(', ');
+      figma.notify(`🔄 Translating to ${langList}...`);
 
-        let translationResponse: TranslationResponse | null = null;
+      // Process all languages in parallel
+      const translationPromises = languages.map(async (lang, langIndex) => {
+        try {
+          let translationResponse: TranslationResponse | null = null;
 
-        if (testPayload.length > MAX_PAYLOAD_SIZE) {
-          // Chunk the texts
-          const chunks: TextNodeData[][] = [];
-          for (let i = 0; i < textNodes.length; i += CHUNK_SIZE) {
-            chunks.push(textNodes.slice(i, i + CHUNK_SIZE));
-          }
-
-          let totalSent = 0;
-          for (let i = 0; i < chunks.length; i++) {
-            const payload: Payload = {
-              ...basePayload,
-              texts: chunks[i],
-              chunk: { index: i + 1, total: chunks.length },
-              lang,
-            };
-
-            const response = await postToWebhook(payload);
-            if (i === chunks.length - 1 && response) {
-              translationResponse = response;
-            }
-            totalSent += chunks[i].length;
-          }
-        } else {
-          const payload: Payload = { ...basePayload, texts: textNodes, lang };
-          translationResponse = await postToWebhook(payload);
-        }
-
-        // Apply translation if received
-        if (translationResponse && translationResponse.texts && translationResponse.texts.length > 0) {
-          console.log(`Translation response for ${lang}:`, JSON.stringify(translationResponse, null, 2));
-          const duplicatedFrame = await applyTranslation(frame, translationResponse, langIndex);
-          duplicatedFrames.push(duplicatedFrame);
-
-          // Store the duplicated frame for review workflow
-          reviewState.duplicatedFrames.set(lang, duplicatedFrame);
-          reviewState.originalFrames.set(lang, frame);
-
-          // Check for new translations that need review
-          const newTranslations = translationResponse.texts.filter((t) => t.isNew);
-
-          if (newTranslations.length > 0) {
-            // Create a map of nodeId -> original text for lookup
-            const originalTextMap = new Map<string, string>();
-            for (const textNode of textNodes) {
-              originalTextMap.set(textNode.nodeId, textNode.characters);
+          if (testPayload.length > MAX_PAYLOAD_SIZE) {
+            // Chunk the texts
+            const chunks: TextNodeData[][] = [];
+            for (let i = 0; i < textNodes.length; i += CHUNK_SIZE) {
+              chunks.push(textNodes.slice(i, i + CHUNK_SIZE));
             }
 
-            // Prepare review data
-            const reviewData: ReviewTranslation[] = newTranslations.map((t) => ({
-              nodeId: t.nodeId,
-              charactersOriginal: originalTextMap.get(t.nodeId) || t.characters,
-              characters: t.characters,
-              charactersTranslated: extractPlainTextFromHTML(t.html),
-              html: t.html,
-            }));
+            for (let i = 0; i < chunks.length; i++) {
+              const payload: Payload = {
+                ...basePayload,
+                texts: chunks[i],
+                chunk: { index: i + 1, total: chunks.length },
+                lang,
+              };
 
-            reviewState.pendingReviews.set(lang, reviewData);
-
-            // Build node ID mapping for this language
-            const originalTextNodes: TextNode[] = [];
-            collectTextNodes(frame, originalTextNodes);
-
-            const duplicateTextNodes: TextNode[] = [];
-            collectTextNodes(duplicatedFrame, duplicateTextNodes);
-
-            const nodeMapping = new Map<string, TextNode>();
-            for (let i = 0; i < originalTextNodes.length; i++) {
-              if (i < duplicateTextNodes.length) {
-                nodeMapping.set(originalTextNodes[i].id, duplicateTextNodes[i]);
+              const response = await postToWebhook(payload);
+              if (i === chunks.length - 1 && response) {
+                translationResponse = response;
               }
             }
-            reviewState.nodeIdMappings.set(lang, nodeMapping);
+          } else {
+            const payload: Payload = { ...basePayload, texts: textNodes, lang };
+            translationResponse = await postToWebhook(payload);
           }
-        } else {
-          console.log(`No translation response received for ${lang} or empty texts array`);
-          console.log('Response:', translationResponse);
+
+          // Apply translation if received
+          if (translationResponse && translationResponse.texts && translationResponse.texts.length > 0) {
+            console.log(`Translation response for ${lang}:`, JSON.stringify(translationResponse, null, 2));
+
+            const duplicatedFrame = await applyTranslation(frame, translationResponse, langIndex);
+
+            // Store the duplicated frame for review workflow
+            reviewState.duplicatedFrames.set(lang, duplicatedFrame);
+            reviewState.originalFrames.set(lang, frame);
+
+            // Check for new translations that need review
+            const newTranslations = translationResponse.texts.filter((t) => t.isNew);
+
+            if (newTranslations.length > 0) {
+              // Create a map of nodeId -> original text for lookup
+              const originalTextMap = new Map<string, string>();
+              for (const textNode of textNodes) {
+                originalTextMap.set(textNode.nodeId, textNode.characters);
+              }
+
+              // Prepare review data
+              const reviewData: ReviewTranslation[] = newTranslations.map((t) => ({
+                nodeId: t.nodeId,
+                charactersOriginal: originalTextMap.get(t.nodeId) || t.characters,
+                characters: t.characters,
+                charactersTranslated: extractPlainTextFromHTML(t.html),
+                html: t.html,
+              }));
+
+              reviewState.pendingReviews.set(lang, reviewData);
+
+              // Build node ID mapping for this language
+              const originalTextNodes: TextNode[] = [];
+              collectTextNodes(frame, originalTextNodes);
+
+              const duplicateTextNodes: TextNode[] = [];
+              collectTextNodes(duplicatedFrame, duplicateTextNodes);
+
+              const nodeMapping = new Map<string, TextNode>();
+              for (let i = 0; i < originalTextNodes.length; i++) {
+                if (i < duplicateTextNodes.length) {
+                  nodeMapping.set(originalTextNodes[i].id, duplicateTextNodes[i]);
+                }
+              }
+              reviewState.nodeIdMappings.set(lang, nodeMapping);
+            }
+
+            return { lang, duplicatedFrame, success: true };
+          } else {
+            console.log(`No translation response received for ${lang} or empty texts array`);
+            console.log('Response:', translationResponse);
+            return { lang, duplicatedFrame: null, success: false };
+          }
+        } catch (error) {
+          console.error(`Error translating ${lang}:`, error);
+          return { lang, duplicatedFrame: null, success: false };
         }
+      });
+
+      // Wait for all translations to complete
+      const results = await Promise.all(translationPromises);
+
+      // Collect successful duplicated frames
+      for (const result of results) {
+        if (result.success && result.duplicatedFrame) {
+          duplicatedFrames.push(result.duplicatedFrame);
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      if (successCount > 0) {
+        figma.notify(`✅ Received ${successCount} translation${successCount === 1 ? '' : 's'}`);
       }
 
       // Check if there are any reviews pending
       if (reviewState.pendingReviews.size > 0) {
+        // Build ordered list of languages for review
+        reviewState.languageOrder = Array.from(reviewState.pendingReviews.keys());
+
         // Switch to review UI
         figma.ui.resize(450, 600);
 
         // Load the first review
-        const firstLang = Array.from(reviewState.pendingReviews.keys())[0];
+        const firstLang = reviewState.languageOrder[0];
         const firstReview = reviewState.pendingReviews.get(firstLang);
 
         if (firstReview) {
-          // Send review data to UI
+          // Send review data to UI with language position
           figma.ui.postMessage({
             type: 'load-review',
             translations: firstReview,
             lang: firstLang,
+            langIndex: 1,
+            totalLangs: reviewState.languageOrder.length,
           });
 
           figma.notify(`📝 Please review ${reviewState.pendingReviews.size} language${reviewState.pendingReviews.size === 1 ? '' : 's'}`);
@@ -659,7 +692,8 @@ async function applyTranslation(
   // Duplicate the frame
   const duplicate = originalFrame.clone();
   duplicate.name = `${originalFrame.name} [${translation.lang}]`;
-  duplicate.x = originalFrame.x + (originalFrame.width + 100) * (langIndex + 1);
+  duplicate.x = originalFrame.x;
+  duplicate.y = originalFrame.y + (originalFrame.height + 157) * (langIndex + 1);
 
   // Collect all text nodes from the original frame to build node ID mapping
   const originalTextNodes: TextNode[] = [];
@@ -1158,6 +1192,7 @@ async function applyChangesToFrame(
 
     // Update the translation object with the new HTML
     translation.html = updatedHtml;
+    translation.appliedToFrame = true; // Mark as applied
 
     // Apply the updated translation to the node
     await applyHTMLToTextNode(duplicateNode, updatedHtml);
@@ -1227,10 +1262,8 @@ async function uploadTranslations(
 
     figma.notify(`✅ Uploaded translations for ${lang.toUpperCase()}`);
 
-    // Apply the edited translations to the duplicated frame
-    if (duplicateFrame) {
-      await applyEditedTranslations(duplicateFrame, translations, lang);
-    }
+    // Don't re-apply translations - they were already applied during initial translation
+    // or manually by the user with the "Apply Changes" button
 
     // Clear review state for this language
     reviewState.pendingReviews.delete(lang);
@@ -1239,6 +1272,10 @@ async function uploadTranslations(
     // Check if there are more reviews pending
     const nextLang = Array.from(reviewState.pendingReviews.keys())[0];
     if (nextLang) {
+      // Calculate the position of this language in the review order
+      const currentIndex = reviewState.languageOrder.indexOf(nextLang);
+      const langIndex = currentIndex >= 0 ? currentIndex + 1 : reviewState.languageOrder.length - reviewState.pendingReviews.size + 1;
+
       // Load next review
       const nextReviews = reviewState.pendingReviews.get(nextLang);
       if (nextReviews) {
@@ -1246,6 +1283,8 @@ async function uploadTranslations(
           type: 'load-review',
           translations: nextReviews,
           lang: nextLang,
+          langIndex: langIndex,
+          totalLangs: reviewState.languageOrder.length,
         });
       }
     } else {

@@ -4,6 +4,7 @@ const WEBHOOK_URL = 'https://n8n.flmng.tools/webhook/7a7db071-5fe1-449e-85c6-446
 const UPLOAD_URL = 'https://n8n.flmng.tools/webhook/022b465e-e27e-4976-ac01-6ef33425e81c';
 const MAX_PAYLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 const CHUNK_SIZE = 200; // nodes per chunk
+const MAX_IMAGE_SIZE = 1 * 1024 * 1024; // 1MB for frame images
 
 figma.showUI(__html__, { width: 300, height: 470 });
 
@@ -151,12 +152,13 @@ figma.ui.onmessage = async (msg: {
       figma.notify('📸 Exporting frame image...');
       let frameImageBase64 = '';
       try {
-        const imageBytes = await frame.exportAsync({
-          format: 'PNG',
-          constraint: { type: 'SCALE', value: 1 },
-        });
-        frameImageBase64 = uint8ArrayToBase64(imageBytes);
-        console.log(`Frame image exported: ${frameImageBase64.length} characters`);
+        const imageBytes = await exportFrameWithSizeLimit(frame);
+        if (imageBytes) {
+          frameImageBase64 = uint8ArrayToBase64(imageBytes);
+          console.log(`Frame image exported: ${frameImageBase64.length} characters`);
+        } else {
+          console.warn('Frame export returned no bytes');
+        }
       } catch (error) {
         console.warn('Failed to export frame image:', error);
         figma.notify('⚠️ Could not export frame image', { error: false });
@@ -755,30 +757,106 @@ async function applyHTMLToTextNode(textNode: TextNode, html: string): Promise<vo
 
   console.log('New text:', newText);
 
-  // Load the original font to ensure we can modify the text
-  const originalFontRaw = textNode.fontName;
-  let originalFont: FontName;
+  // Load ALL fonts needed for modification
+  // We need fonts from BOTH the current node AND the new HTML
+  const fontsToLoad = new Set<string>();
 
-  if (originalFontRaw === figma.mixed || typeof originalFontRaw !== 'object') {
-    // If mixed, load any font from the first character
-    const firstCharFont = textNode.getRangeFontName(0, 1);
-    if (firstCharFont !== figma.mixed && typeof firstCharFont === 'object') {
-      originalFont = firstCharFont as FontName;
-    } else {
-      // Fallback to a default font
-      originalFont = { family: 'Inter', style: 'Regular' };
+  // 1. Load fonts from current text node (needed to modify existing text)
+  const textLength = textNode.characters.length;
+  if (textLength > 0) {
+    const originalSegments = textNode.getStyledTextSegments(['fontName']);
+    for (const segment of originalSegments) {
+      const fontName = segment.fontName as FontName;
+      fontsToLoad.add(`${fontName.family}::${fontName.style}`);
     }
-  } else {
-    originalFont = originalFontRaw as FontName;
   }
 
-  try {
-    await figma.loadFontAsync(originalFont);
-  } catch (e) {
-    console.warn(`Could not load font: ${originalFont.family} ${originalFont.style}`);
+  // 2. Load fonts from the new HTML we're about to apply
+  for (const segment of segments) {
+    if (segment.styles.fontFamily) {
+      // Extract font family from new HTML
+      const family = segment.styles.fontFamily;
+
+      // Determine the font style from weight and italic
+      const weight = segment.styles.fontWeight;
+      const isItalic = segment.styles.fontStyle === 'italic';
+
+      let style = 'Regular';
+      if (weight === '900' || weight === 'black') {
+        style = isItalic ? 'Black Italic' : 'Black';
+      } else if (weight === '700' || weight === 'bold') {
+        style = isItalic ? 'Bold Italic' : 'Bold';
+      } else if (weight === '600' || weight === 'semibold') {
+        style = isItalic ? 'Semi Bold Italic' : 'Semi Bold';
+      } else if (weight === '500' || weight === 'medium') {
+        style = isItalic ? 'Medium Italic' : 'Medium';
+      } else if (weight === '400' || weight === 'normal' || weight === 'regular') {
+        style = isItalic ? 'Italic' : 'Regular';
+      } else if (isItalic) {
+        style = 'Italic';
+      }
+
+      fontsToLoad.add(`${family}::${style}`);
+    }
   }
 
-  // Set the new text
+  // If no fonts found, add a default fallback
+  if (fontsToLoad.size === 0) {
+    fontsToLoad.add('Inter::Regular');
+  }
+
+  // Load all collected fonts and track which ones are available
+  console.log(`Loading ${fontsToLoad.size} fonts for text modification...`);
+  const availableFonts = new Set<string>();
+
+  for (const fontKey of fontsToLoad) {
+    const [family, style] = fontKey.split('::');
+    try {
+      await figma.loadFontAsync({ family, style });
+      availableFonts.add(fontKey);
+      console.log(`✓ Loaded font: ${family} ${style}`);
+    } catch (e) {
+      console.warn(`✗ Font not available: ${family} ${style} - will use fallback`);
+    }
+  }
+
+  // Ensure Inter Regular is always loaded as fallback
+  if (!availableFonts.has('Inter::Regular')) {
+    try {
+      await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+      availableFonts.add('Inter::Regular');
+      console.log(`✓ Loaded fallback font: Inter Regular`);
+    } catch (e) {
+      console.error('Could not load fallback font Inter Regular');
+    }
+  }
+
+  // CRITICAL: If the current text node uses fonts we couldn't load,
+  // we must change those fonts to Inter Regular BEFORE setting text
+  if (textLength > 0) {
+    const currentSegments = textNode.getStyledTextSegments(['fontName']);
+    for (const segment of currentSegments) {
+      const fontName = segment.fontName as FontName;
+      const fontKey = `${fontName.family}::${fontName.style}`;
+
+      // If this font isn't available, replace it with Inter Regular
+      if (!availableFonts.has(fontKey) && availableFonts.has('Inter::Regular')) {
+        try {
+          textNode.setRangeFontName(segment.start, segment.end, {
+            family: 'Inter',
+            style: 'Regular',
+          });
+          console.log(
+            `Replaced unavailable font ${fontName.family} ${fontName.style} with Inter Regular at range ${segment.start}-${segment.end}`
+          );
+        } catch (e) {
+          console.warn(`Could not replace font at range ${segment.start}-${segment.end}:`, e);
+        }
+      }
+    }
+  }
+
+  // Set the new text (now all fonts in the node are loaded)
   textNode.characters = newText;
 
   // Apply styles to each segment
@@ -797,14 +875,14 @@ async function applyHTMLToTextNode(textNode: TextNode, html: string): Promise<vo
       // Get current font
       let currentFont = textNode.getRangeFontName(start, end);
 
-      // Handle mixed fonts or invalid fonts - use the original font
+      // Handle mixed fonts or invalid fonts - use a safe default
       let fontName: FontName;
       if (
         currentFont === figma.mixed ||
         !currentFont ||
         typeof currentFont !== 'object'
       ) {
-        fontName = originalFont;
+        fontName = { family: 'Inter', style: 'Regular' };
       } else {
         fontName = currentFont as FontName;
       }
@@ -838,25 +916,37 @@ async function applyHTMLToTextNode(textNode: TextNode, html: string): Promise<vo
 
       // Apply font if family changed or style changed
       if (family !== fontName.family || targetStyle !== currentStyle) {
-        try {
-          await figma.loadFontAsync({ family, style: targetStyle });
+        const requestedFont = `${family}::${targetStyle}`;
+
+        // Check if the requested font is available
+        if (availableFonts.has(requestedFont)) {
+          // Font is available, use it directly
           textNode.setRangeFontName(start, end, { family, style: targetStyle });
           console.log(`Applied font: ${family} ${targetStyle} to range ${start}-${end}`);
-        } catch (e) {
-          console.warn(`Could not load ${family} ${targetStyle}, trying alternatives`);
-          // Font style might not exist, try alternatives based on weight
+        } else {
+          // Font not available, try alternatives for this family
+          console.warn(`Font not available: ${family} ${targetStyle}, trying alternatives...`);
+
           const alternatives = isItalic
             ? ['Bold Italic', 'SemiBold Italic', 'Semi Bold Italic', 'Medium Italic', 'Italic', 'Bold', 'SemiBold', 'Semi Bold', 'Medium', 'Regular']
             : ['Bold', 'SemiBold', 'Semi Bold', 'Medium', 'Regular'];
 
+          let fontApplied = false;
           for (const alt of alternatives) {
-            try {
-              await figma.loadFontAsync({ family, style: alt });
+            if (availableFonts.has(`${family}::${alt}`)) {
               textNode.setRangeFontName(start, end, { family, style: alt });
-              console.log(`Applied fallback font: ${family} ${alt} to range ${start}-${end}`);
+              console.log(`Applied alternative font: ${family} ${alt} to range ${start}-${end}`);
+              fontApplied = true;
               break;
-            } catch (e2) {
-              // Continue to next alternative
+            }
+          }
+
+          // If no alternatives for this family, fall back to Inter
+          if (!fontApplied) {
+            console.warn(`No ${family} fonts available, falling back to Inter Regular`);
+            if (availableFonts.has('Inter::Regular')) {
+              textNode.setRangeFontName(start, end, { family: 'Inter', style: 'Regular' });
+              console.log(`Applied fallback: Inter Regular to range ${start}-${end}`);
             }
           }
         }
@@ -1343,6 +1433,93 @@ function extractPlainTextFromHTML(html: string): string {
   text = text.replace(/<[^>]+>/g, '');
   text = decodeHTML(text);
   return text;
+}
+
+/**
+ * Smart frame export that adapts scale to keep image under 1MB
+ * Prevents Figma from freezing on frames with many PNG images
+ */
+async function exportFrameWithSizeLimit(frame: FrameNode): Promise<Uint8Array | null> {
+  const frameArea = frame.width * frame.height;
+
+  // Estimate initial scale based on frame dimensions
+  // Larger frames need smaller initial scales
+  let scale = 1.0;
+  if (frameArea > 2000000) {
+    scale = 0.3; // Very large frames
+  } else if (frameArea > 1000000) {
+    scale = 0.5; // Large frames
+  } else if (frameArea > 500000) {
+    scale = 0.7; // Medium frames
+  }
+
+  console.log(`Frame dimensions: ${frame.width}x${frame.height} (area: ${frameArea})`);
+  console.log(`Starting export with initial scale: ${scale}`);
+
+  let minScale = 0.1;
+  let maxScale = scale;
+  let bestBytes: Uint8Array | null = null;
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+
+    try {
+      console.log(`Attempt ${attempts}: Trying scale ${scale.toFixed(2)}`);
+
+      const imageBytes = await frame.exportAsync({
+        format: 'PNG',
+        constraint: { type: 'SCALE', value: scale },
+      });
+
+      const sizeInBytes = imageBytes.length;
+      const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
+      console.log(`Exported size: ${sizeInMB}MB (${sizeInBytes} bytes) at scale ${scale.toFixed(2)}`);
+
+      if (sizeInBytes <= MAX_IMAGE_SIZE) {
+        // Image is under limit, save it
+        bestBytes = imageBytes;
+
+        // Try to increase scale to get better quality (binary search upward)
+        if (scale < maxScale && attempts < maxAttempts) {
+          minScale = scale;
+          scale = (scale + maxScale) / 2;
+        } else {
+          // We found a good size, stop
+          break;
+        }
+      } else {
+        // Image is too large, reduce scale (binary search downward)
+        maxScale = scale;
+        scale = (minScale + scale) / 2;
+
+        // If scale gets too small, stop
+        if (scale < 0.1) {
+          console.warn('Scale too small, stopping');
+          break;
+        }
+      }
+    } catch (error) {
+      console.error(`Export failed at scale ${scale}:`, error);
+      // Reduce scale and try again
+      maxScale = scale;
+      scale = (minScale + scale) / 2;
+
+      if (scale < 0.1) {
+        break;
+      }
+    }
+  }
+
+  if (bestBytes) {
+    const finalSize = (bestBytes.length / (1024 * 1024)).toFixed(2);
+    console.log(`✓ Final export: ${finalSize}MB`);
+  } else {
+    console.warn('Could not export frame within size limit');
+  }
+
+  return bestBytes;
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {

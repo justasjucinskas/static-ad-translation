@@ -2,287 +2,578 @@
 <html>
 <head>
   <style>
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 16px;
-      margin: 0;
+    * {
+      box-sizing: border-box;
     }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      padding: 0;
+      margin: 0;
+      background: #ffffff;
+      color: #1a1a1a;
+      line-height: 1.5;
+    }
+
     .view {
       display: none !important;
     }
+
     .view.active {
-      display: block !important;
-    }
-    .review-view.active {
       display: flex !important;
       flex-direction: column;
-      height: calc(100vh - 32px);
+      height: 100vh;
     }
-    h2 {
-      font-size: 14px;
+
+    /* Modern Header */
+    .page-header {
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .page-title {
+      font-size: 16px;
       font-weight: 600;
+      margin: 0 0 4px 0;
+      color: #1a1a1a;
+    }
+
+    .page-subtitle {
+      font-size: 13px;
+      color: #8b8b8b;
+      margin: 0;
+      font-weight: 400;
+    }
+
+    /* Content Area */
+    .page-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    /* Footer Actions */
+    .page-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+
+    /* Modern Button */
+    button {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #0066ff;
+      color: white;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    button:hover:not(:disabled) {
+      background: #0052cc;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 2px 4px rgba(0, 102, 255, 0.2);
+    }
+
+    button:disabled {
+      background: #e0e0e0;
+      color: #9e9e9e;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Secondary Button */
+    .btn-secondary {
+      background: #ffffff;
+      color: #1a1a1a;
+      border: 1.5px solid #e0e0e0;
+      margin-bottom: 8px;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #f5f5f5;
+      border-color: #d0d0d0;
+      box-shadow: none;
+    }
+
+    /* Language Selection */
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a1a;
       margin: 0 0 12px 0;
     }
-    h3 {
-      font-size: 12px;
-      font-weight: 500;
-      margin: 16px 0 8px 0;
-      color: #333;
-    }
-    .languages {
-      display: flex;
-      flex-direction: column;
+
+    .languages-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
-    .language-option {
+
+    .language-checkbox {
+      position: relative;
+    }
+
+    .language-checkbox input[type="checkbox"] {
+      position: absolute;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .language-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: #ffffff;
+      color: #5a5a5a;
+      user-select: none;
+    }
+
+    .language-checkbox input:checked + .language-label {
+      background: #e6f2ff;
+      border-color: #0066ff;
+      color: #0066ff;
+    }
+
+    .language-label:hover {
+      border-color: #b0b0b0;
+    }
+
+    .language-checkbox input:checked + .language-label:hover {
+      border-color: #0052cc;
+      background: #d9e9ff;
+    }
+
+    /* Selection Info */
+    .selection-info {
       display: flex;
       align-items: center;
       gap: 8px;
-    }
-    .language-option input[type="checkbox"] {
-      cursor: pointer;
-    }
-    .language-option label {
-      font-size: 11px;
-      cursor: pointer;
-      user-select: none;
-    }
-    button {
-      width: 100%;
-      padding: 8px 16px;
-      font-size: 12px;
-      font-weight: 500;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      background: #18A0FB;
-      color: white;
-    }
-    button:hover {
-      background: #0D8CE8;
-    }
-    button:active {
-      background: #0B7DD1;
-    }
-    button:disabled {
-      background: #ccc;
-      cursor: not-allowed;
+      padding: 12px;
+      background: #f5f7fa;
+      border-radius: 8px;
+      margin-bottom: 20px;
     }
 
-    /* Review UI Styles */
-    .header {
+    .selection-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .selection-text {
+      flex: 1;
+      font-size: 13px;
+      color: #5a5a5a;
+    }
+
+    .selection-count {
+      font-weight: 600;
+      color: #0066ff;
+    }
+
+    /* Progress View */
+    .progress-header {
+      padding: 20px;
+      text-align: center;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .progress-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: #1a1a1a;
+    }
+
+    .progress-subtitle {
+      font-size: 13px;
+      color: #8b8b8b;
+      margin: 0;
+    }
+
+    .progress-bar-wrapper {
+      padding: 20px;
+    }
+
+    .progress-stats {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .progress-label {
+      color: #5a5a5a;
+      font-weight: 500;
+    }
+
+    .progress-percentage {
+      color: #0066ff;
+      font-weight: 600;
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0066ff 0%, #0099ff 100%);
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 10px;
+    }
+
+    .frame-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 20px 20px;
+    }
+
+    .frame-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      font-size: 13px;
+      color: #8b8b8b;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #fafafa;
+      transition: all 0.2s ease;
+    }
+
+    .frame-item.current {
+      background: #e6f2ff;
+      color: #0066ff;
+      font-weight: 500;
+    }
+
+    .frame-item.completed {
+      color: #1a1a1a;
+      background: #f0f9f0;
+    }
+
+    .frame-item-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+
+    .frame-item-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Animated Spinner */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e0e0e0;
+      border-top-color: #0066ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Review View */
+    .review-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #e5e5e5;
     }
-    .counter {
+
+    .review-info {
+      flex: 1;
+    }
+
+    .review-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 4px 0;
+      color: #1a1a1a;
+    }
+
+    .review-subtitle {
+      font-size: 12px;
+      color: #8b8b8b;
+      margin: 0;
+    }
+
+    .lang-badge {
+      display: inline-block;
+      background: #0066ff;
+      color: white;
       font-size: 11px;
-      color: #666;
-      font-weight: 500;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      margin-right: 6px;
     }
+
     .nav-controls {
       display: flex;
-      gap: 4px;
+      gap: 8px;
     }
+
     .nav-btn {
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       padding: 0;
-      font-size: 16px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
+      font-size: 18px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
       background: white;
-      color: #333;
+      color: #5a5a5a;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: all 0.2s ease;
     }
+
     .nav-btn:hover:not(:disabled) {
       background: #f5f5f5;
-      border-color: #999;
+      border-color: #b0b0b0;
+      color: #1a1a1a;
+      transform: scale(1.05);
     }
+
+    .nav-btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
     .nav-btn:disabled {
       opacity: 0.3;
       cursor: not-allowed;
+      transform: none;
     }
-    .content {
+
+    .review-content {
       flex: 1;
       overflow-y: auto;
-      margin-bottom: 16px;
+      padding: 20px;
     }
+
     .field {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
+
     .field-label {
-      font-size: 11px;
-      font-weight: 500;
-      color: #333;
-      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #5a5a5a;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+
     .node-id {
-      font-size: 10px;
-      color: #999;
-      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      color: #8b8b8b;
+      font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
       background: #f5f5f5;
-      padding: 4px 8px;
-      border-radius: 3px;
+      padding: 6px 10px;
+      border-radius: 6px;
       display: inline-block;
     }
+
     .source-text {
-      font-size: 12px;
-      color: #333;
-      background: #f9f9f9;
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid #e5e5e5;
-      line-height: 1.4;
-      min-height: 40px;
+      font-size: 13px;
+      color: #1a1a1a;
+      background: #fafafa;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #f0f0f0;
+      line-height: 1.5;
+      min-height: 44px;
     }
+
     .translation-input {
       width: 100%;
-      font-size: 12px;
-      padding: 10px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
+      font-size: 13px;
+      padding: 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
       resize: vertical;
-      min-height: 60px;
+      min-height: 80px;
       font-family: inherit;
-      box-sizing: border-box;
+      transition: all 0.2s ease;
+      line-height: 1.5;
     }
+
     .translation-input:focus {
       outline: none;
-      border-color: #18A0FB;
-      box-shadow: 0 0 0 2px rgba(24, 160, 251, 0.1);
+      border-color: #0066ff;
+      box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
     }
-    .footer {
-      border-top: 1px solid #e5e5e5;
-      padding-top: 16px;
-    }
-    .btn-primary {
-      width: 100%;
-      padding: 10px 16px;
+
+    .reverse-btn {
+      padding: 6px 12px;
       font-size: 12px;
       font-weight: 500;
-      border: none;
+      border: 1.5px solid #e0e0e0;
       border-radius: 6px;
-      cursor: pointer;
-      background: #18A0FB;
-      color: white;
-    }
-    .btn-primary:hover {
-      background: #0D8CE8;
-    }
-    .btn-primary:active {
-      background: #0B7DD1;
-    }
-    .btn-primary:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-    }
-    .lang-badge {
-      display: inline-block;
-      background: #18A0FB;
-      color: white;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 4px;
-      text-transform: uppercase;
-    }
-    .lang-counter {
-      display: inline-block;
-      font-size: 11px;
-      color: #666;
-      font-weight: 500;
-    }
-    .reverse-btn {
-      padding: 4px 10px;
-      font-size: 11px;
-      font-weight: 500;
-      border: 1px solid #ccc;
-      border-radius: 4px;
       background: white;
-      color: #666;
+      color: #5a5a5a;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s ease;
     }
+
     .reverse-btn:hover {
       background: #f5f5f5;
-      border-color: #999;
-      color: #333;
+      border-color: #b0b0b0;
+      color: #1a1a1a;
     }
+
     .reverse-btn:active {
-      background: #e5e5e5;
+      transform: scale(0.98);
+    }
+
+    .review-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
     }
   </style>
 </head>
 <body>
   <!-- Export View -->
   <div id="export-view" class="view active">
-    <h2>Static Ad Translation Exporter</h2>
+    <div class="page-header">
+      <h1 class="page-title">Ad Translation</h1>
+      <p class="page-subtitle">Select frames and languages to translate</p>
+    </div>
 
-    <h3>Select target languages:</h3>
-    <div class="languages">
-    <div class="language-option">
-      <input type="checkbox" id="lang-es" value="es" checked>
-      <label for="lang-es">Spanish (es)</label>
+    <div class="page-content">
+      <!-- Selection Info -->
+      <div class="selection-info" id="selection-info">
+        <span class="selection-icon">📄</span>
+        <span class="selection-text">
+          <span class="selection-count" id="frame-count">0</span> frame(s) selected
+        </span>
+      </div>
+
+      <!-- Language Selection -->
+      <div class="section-label">Target Languages</div>
+      <div class="languages-grid">
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-en" value="en">
+          <label for="lang-en" class="language-label">🇬🇧 English</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-es" value="es" checked>
+          <label for="lang-es" class="language-label">🇪🇸 Spanish</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-de" value="de">
+          <label for="lang-de" class="language-label">🇩🇪 German</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-fr" value="fr">
+          <label for="lang-fr" class="language-label">🇫🇷 French</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-it" value="it">
+          <label for="lang-it" class="language-label">🇮🇹 Italian</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-no" value="no">
+          <label for="lang-no" class="language-label">🇳🇴 Norwegian</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-pl" value="pl">
+          <label for="lang-pl" class="language-label">🇵🇱 Polish</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-pt" value="pt">
+          <label for="lang-pt" class="language-label">🇵🇹 Portuguese</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-sv" value="sv">
+          <label for="lang-sv" class="language-label">🇸🇪 Swedish</label>
+        </div>
+        <div class="language-checkbox">
+          <input type="checkbox" id="lang-tr" value="tr">
+          <label for="lang-tr" class="language-label">🇹🇷 Turkish</label>
+        </div>
+      </div>
     </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-fr" value="fr">
-      <label for="lang-fr">French (fr)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-de" value="de">
-      <label for="lang-de">German (de)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-it" value="it">
-      <label for="lang-it">Italian (it)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-pt" value="pt">
-      <label for="lang-pt">Portuguese (pt)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-nl" value="nl">
-      <label for="lang-nl">Dutch (nl)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-pl" value="pl">
-      <label for="lang-pl">Polish (pl)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-sv" value="sv">
-      <label for="lang-sv">Swedish (sv)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-lt" value="lt">
-      <label for="lang-lt">Lithuanian (lt)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-tr" value="tr">
-      <label for="lang-tr">Turkish (tr)</label>
-    </div>
-    <div class="language-option">
-      <input type="checkbox" id="lang-no" value="no">
-      <label for="lang-no">Norwegian (no)</label>
+
+    <div class="page-footer">
+      <button id="export">Translate</button>
     </div>
   </div>
 
-  <button id="export">Export & Translate</button>
+  <!-- Progress View -->
+  <div id="progress-view" class="view progress-view">
+    <div class="progress-header">
+      <h1 class="progress-title">Translating Frames</h1>
+      <p class="progress-subtitle" id="progress-status">Initializing...</p>
+    </div>
+    <div class="progress-bar-wrapper">
+      <div class="progress-stats">
+        <span class="progress-label" id="progress-label">Processing...</span>
+        <span class="progress-percentage" id="progress-percentage">0%</span>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="progress-bar"></div>
+      </div>
+    </div>
+    <div class="frame-list" id="frame-list">
+      <!-- Frame items will be dynamically inserted here -->
+    </div>
   </div>
 
   <!-- Review View -->
   <div id="review-view" class="view review-view">
-    <div class="header">
-      <div>
-        <h2>Review New Translations <span class="lang-badge" id="lang-badge"></span> <span class="lang-counter" id="lang-counter"></span></h2>
-        <div class="counter" id="counter">Translation 1 of 1</div>
+    <div class="review-header">
+      <div class="review-info">
+        <h1 class="review-title">
+          <span class="lang-badge" id="lang-badge"></span>
+          <span id="lang-counter"></span>
+        </h1>
+        <p class="review-subtitle" id="counter">Translation 1 of 1</p>
       </div>
       <div class="nav-controls">
         <button class="nav-btn" id="prev-btn" title="Previous (←)">←</button>
@@ -290,29 +581,29 @@
       </div>
     </div>
 
-    <div class="content">
+    <div class="review-content">
       <div class="field">
         <div class="field-label">Node ID</div>
         <div class="node-id" id="node-id">—</div>
       </div>
 
       <div class="field">
-        <div class="field-label">Original Text (English)</div>
+        <div class="field-label">Original Text</div>
         <div class="source-text" id="original-text">—</div>
       </div>
 
       <div class="field">
-        <div class="field-label" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>Translation (Editable)</span>
-          <button class="reverse-btn" id="reverse-btn" title="Restore original translation">↶ Reverse</button>
+        <div class="field-label">
+          <span>Translation</span>
+          <button class="reverse-btn" id="reverse-btn" title="Restore original translation">↶ Undo</button>
         </div>
         <textarea class="translation-input" id="translation-input" placeholder="Enter translation..."></textarea>
       </div>
     </div>
 
-    <div class="footer">
-      <button class="btn-primary" id="apply-btn" style="margin-bottom: 8px;" disabled>Apply Changes to Frame</button>
-      <button class="btn-primary" id="upload-btn">Upload All Translations</button>
+    <div class="review-footer">
+      <button class="btn-secondary" id="apply-btn" disabled>Apply Changes</button>
+      <button id="upload-btn">Save & Continue</button>
     </div>
   </div>
 
@@ -322,6 +613,7 @@
     const checkboxes = document.querySelectorAll('input[type="checkbox"]');
     const exportView = document.getElementById('export-view');
     const reviewView = document.getElementById('review-view');
+    const progressView = document.getElementById('progress-view');
 
     // Review View
     const prevBtn = document.getElementById('prev-btn');
@@ -336,6 +628,15 @@
     const langCounter = document.getElementById('lang-counter');
     const reverseBtn = document.getElementById('reverse-btn');
 
+    // Progress View
+    const progressStatus = document.getElementById('progress-status');
+    const progressBar = document.getElementById('progress-bar');
+    const progressLabel = document.getElementById('progress-label');
+    const progressPercentage = document.getElementById('progress-percentage');
+    const frameList = document.getElementById('frame-list');
+    const frameCount = document.getElementById('frame-count');
+    const selectionInfo = document.getElementById('selection-info');
+
     let translations = [];
     let currentIndex = 0;
     let currentLang = '';
@@ -343,14 +644,24 @@
     let totalLangs = 1;
     let hasUnsavedChanges = false;
     let originalTranslations = new Map(); // Store original translations
+    let isTranslating = false; // Track if translation is in progress
+    let progressFrames = []; // Track frame names for progress display
 
     function updateButtonState() {
       const selected = Array.from(checkboxes).filter(cb => cb.checked);
       exportButton.disabled = selected.length === 0;
-      exportButton.textContent = selected.length > 0
-        ? `Export & Translate (${selected.length} ${selected.length === 1 ? 'language' : 'languages'})`
-        : 'Select at least one language';
+
+      if (selected.length === 0) {
+        exportButton.textContent = 'Select at least one language';
+      } else {
+        exportButton.textContent = 'Translate';
+      }
     }
+
+    // Request frame count from plugin on load
+    parent.postMessage({
+      pluginMessage: { type: 'get-selection-count' }
+    }, '*');
 
     checkboxes.forEach(cb => {
       cb.addEventListener('change', updateButtonState);
@@ -379,7 +690,79 @@
 
     function switchToExport() {
       reviewView.classList.remove('active');
+      progressView.classList.remove('active');
       exportView.classList.add('active');
+    }
+
+    function switchToProgress() {
+      exportView.classList.remove('active');
+      reviewView.classList.remove('active');
+      progressView.classList.add('active');
+    }
+
+    // Progress View Functions
+    function initializeProgress(totalFrames, languages) {
+      isTranslating = true;
+      progressFrames = Array(totalFrames).fill(null);
+      frameList.innerHTML = '';
+
+      // Create frame items
+      for (let i = 0; i < totalFrames; i++) {
+        const frameItem = document.createElement('div');
+        frameItem.className = 'frame-item';
+        frameItem.id = `frame-item-${i}`;
+        frameItem.innerHTML = `
+          <div class="frame-item-icon"><div class="spinner"></div></div>
+          <div class="frame-item-name">Frame ${i + 1}</div>
+        `;
+        frameList.appendChild(frameItem);
+      }
+
+      progressBar.style.width = '0%';
+      progressStatus.textContent = 'Starting translation...';
+      progressLabel.textContent = 'Processing frames...';
+      progressPercentage.textContent = '0%';
+      switchToProgress();
+    }
+
+    function updateProgress(currentFrame, totalFrames, frameName) {
+      const progress = Math.round((currentFrame / totalFrames) * 100);
+      progressBar.style.width = `${progress}%`;
+      progressStatus.textContent = frameName || `Frame ${currentFrame}`;
+      progressLabel.textContent = `Frame ${currentFrame} of ${totalFrames}`;
+      progressPercentage.textContent = `${progress}%`;
+
+      // Update frame items
+      for (let i = 0; i < totalFrames; i++) {
+        const frameItem = document.getElementById(`frame-item-${i}`);
+        const iconEl = frameItem.querySelector('.frame-item-icon');
+
+        if (i < currentFrame - 1) {
+          frameItem.className = 'frame-item completed';
+          iconEl.innerHTML = '✓';
+        } else if (i === currentFrame - 1) {
+          frameItem.className = 'frame-item current';
+          iconEl.innerHTML = '<div class="spinner"></div>';
+          frameItem.querySelector('.frame-item-name').textContent = frameName || `Frame ${i + 1}`;
+        }
+      }
+    }
+
+    function completeProgress() {
+      isTranslating = false;
+      progressBar.style.width = '100%';
+      progressStatus.textContent = 'All frames translated!';
+      progressLabel.textContent = 'Complete';
+      progressPercentage.textContent = '100%';
+
+      // Mark all items as completed including the last one
+      document.querySelectorAll('.frame-item').forEach((item, index) => {
+        item.className = 'frame-item completed';
+        const iconEl = item.querySelector('.frame-item-icon');
+        if (iconEl) {
+          iconEl.innerHTML = '✓';
+        }
+      });
     }
 
     function renderCurrent() {
@@ -502,11 +885,36 @@
       }
     };
 
+    // Close confirmation
+    window.addEventListener('beforeunload', (e) => {
+      if (isTranslating) {
+        e.preventDefault();
+        e.returnValue = 'Translation is in progress. Are you sure you want to close?';
+        return e.returnValue;
+      }
+    });
+
     // Listen for messages from plugin
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
 
-      if (msg.type === 'load-review') {
+      if (msg.type === 'selection-count') {
+        frameCount.textContent = msg.count;
+        // Update selection info styling based on count
+        if (msg.count === 0) {
+          selectionInfo.style.background = '#fff4e6';
+          selectionInfo.style.borderColor = '#ffa726';
+        } else {
+          selectionInfo.style.background = '#f5f7fa';
+          selectionInfo.style.borderColor = 'transparent';
+        }
+      } else if (msg.type === 'start-progress') {
+        initializeProgress(msg.totalFrames, msg.languages);
+      } else if (msg.type === 'update-progress') {
+        updateProgress(msg.currentFrame, msg.totalFrames, msg.frameName);
+      } else if (msg.type === 'complete-progress') {
+        completeProgress();
+      } else if (msg.type === 'load-review') {
         translations = msg.translations;
         currentLang = msg.lang;
         currentLangIndex = msg.langIndex || 1;
@@ -519,8 +927,8 @@
           originalTranslations.set(`${currentLang}_${t.nodeId}`, t.charactersTranslated);
         }
 
-        langBadge.textContent = currentLang;
-        langCounter.textContent = `(${currentLangIndex}/${totalLangs})`;
+        langBadge.textContent = currentLang.toUpperCase();
+        langCounter.textContent = `Language ${currentLangIndex} of ${totalLangs}`;
         switchToReview();
         renderCurrent();
       } else if (msg.type === 'switch-to-export') {

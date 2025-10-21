@@ -8,6 +8,21 @@ const MAX_IMAGE_SIZE = 1 * 1024 * 1024; // 1MB for frame images
 
 figma.showUI(__html__, { width: 300, height: 470 });
 
+// Send initial selection count
+function sendSelectionCount() {
+  const selection = figma.currentPage.selection;
+  const frameCount = selection.filter(node => node.type === 'FRAME').length;
+  figma.ui.postMessage({
+    type: 'selection-count',
+    count: frameCount,
+  });
+}
+
+// Listen for selection changes
+figma.on('selectionchange', () => {
+  sendSelectionCount();
+});
+
 // State management for review workflow
 interface ReviewState {
   duplicatedFrames: Map<string, FrameNode>; // lang -> frame
@@ -15,6 +30,7 @@ interface ReviewState {
   pendingReviews: Map<string, ReviewTranslation[]>; // lang -> translations to review
   nodeIdMappings: Map<string, Map<string, TextNode>>; // lang -> (originalNodeId -> duplicateNode)
   languageOrder: string[]; // Ordered list of languages with pending reviews
+  isTranslating: boolean; // Track if translation is in progress
 }
 
 const reviewState: ReviewState = {
@@ -23,6 +39,7 @@ const reviewState: ReviewState = {
   pendingReviews: new Map(),
   nodeIdMappings: new Map(),
   languageOrder: [],
+  isTranslating: false,
 };
 
 interface TextNodeData {
@@ -108,45 +125,80 @@ figma.ui.onmessage = async (msg: {
   translation?: ReviewTranslation;
   lang?: string;
 }) => {
-  if (msg.type === 'export-frame') {
+  if (msg.type === 'get-selection-count') {
+    sendSelectionCount();
+  } else if (msg.type === 'export-frame') {
     try {
       // Validate selection
-      if (figma.currentPage.selection.length !== 1) {
-        figma.notify('⚠️ Please select exactly one frame', { error: true });
+      const selection = figma.currentPage.selection;
+
+      if (selection.length === 0) {
+        figma.notify('⚠️ Please select at least one frame', { error: true });
         return;
       }
 
-      const selected = figma.currentPage.selection[0];
-      if (selected.type !== 'FRAME') {
-        figma.notify('⚠️ Selection must be a FRAME', { error: true });
+      if (selection.length > 25) {
+        figma.notify('⚠️ Maximum 25 frames allowed. Please select fewer frames.', { error: true });
         return;
       }
 
-      const frame = selected as FrameNode;
+      // Validate all selections are frames
+      const frames: FrameNode[] = [];
+      for (const node of selection) {
+        if (node.type !== 'FRAME') {
+          figma.notify('⚠️ All selections must be FRAME nodes', { error: true });
+          return;
+        }
+        frames.push(node as FrameNode);
+      }
+
       const languages = msg.languages || ['es']; // Default to Spanish if not provided
 
-      // Show initial progress notification
-      figma.notify('🔄 Processing frame...');
+      // Mark translation as in progress
+      reviewState.isTranslating = true;
 
-      // Extract data
-      const textNodes: TextNodeData[] = [];
-      const fontsToLoad = new Set<string>();
+      // Send progress UI initialization
+      figma.ui.postMessage({
+        type: 'start-progress',
+        totalFrames: frames.length,
+        languages: languages,
+      });
 
-      // First pass: collect all fonts
-      await collectFonts(frame, fontsToLoad);
+      const allDuplicatedFrames: FrameNode[] = [];
 
-      // Load fonts
-      for (const fontKey of fontsToLoad) {
-        const [family, style] = fontKey.split('::');
-        try {
-          await figma.loadFontAsync({ family, style });
-        } catch (e) {
-          console.warn(`Could not load font: ${family} ${style}`);
+      // Process frames sequentially
+      for (let frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+        const frame = frames[frameIndex];
+
+        // Update progress
+        figma.ui.postMessage({
+          type: 'update-progress',
+          currentFrame: frameIndex + 1,
+          totalFrames: frames.length,
+          frameName: frame.name,
+        });
+
+        figma.notify(`🔄 Processing frame ${frameIndex + 1}/${frames.length}: ${frame.name}`);
+
+        // Extract data
+        const textNodes: TextNodeData[] = [];
+        const fontsToLoad = new Set<string>();
+
+        // First pass: collect all fonts
+        await collectFonts(frame, fontsToLoad);
+
+        // Load fonts
+        for (const fontKey of fontsToLoad) {
+          const [family, style] = fontKey.split('::');
+          try {
+            await figma.loadFontAsync({ family, style });
+          } catch (e) {
+            console.warn(`Could not load font: ${family} ${style}`);
+          }
         }
-      }
 
-      // Second pass: extract data
-      await extractNodes(frame, textNodes);
+        // Second pass: extract data
+        await extractNodes(frame, textNodes);
 
       // Export frame as PNG and convert to base64
       figma.notify('📸 Exporting frame image...');
@@ -187,10 +239,6 @@ figma.ui.onmessage = async (msg: {
       const testPayload = JSON.stringify({ ...basePayload, texts: textNodes });
 
       const duplicatedFrames: FrameNode[] = [];
-
-      // Notify user that translations are starting
-      const langList = languages.map(l => l.toUpperCase()).join(', ');
-      figma.notify(`🔄 Translating to ${langList}...`);
 
       // Process all languages in parallel
       const translationPromises = languages.map(async (lang, langIndex) => {
@@ -293,15 +341,29 @@ figma.ui.onmessage = async (msg: {
 
       const successCount = results.filter(r => r.success).length;
       if (successCount > 0) {
-        figma.notify(`✅ Received ${successCount} translation${successCount === 1 ? '' : 's'}`);
+        figma.notify(`✅ Frame ${frameIndex + 1}/${frames.length}: Received ${successCount} translation${successCount === 1 ? '' : 's'}`);
       }
+
+        // Collect all duplicated frames from this frame
+        allDuplicatedFrames.push(...duplicatedFrames);
+      }
+
+      // Mark translation as complete
+      reviewState.isTranslating = false;
+
+      // Send complete-progress message to finish animation
+      figma.ui.postMessage({
+        type: 'complete-progress',
+      });
 
       // Check if there are any reviews pending
       if (reviewState.pendingReviews.size > 0) {
         // Build ordered list of languages for review
         reviewState.languageOrder = Array.from(reviewState.pendingReviews.keys());
 
-        // Switch to review UI
+        // Wait a moment for progress completion animation, then switch to review UI
+        await new Promise(resolve => setTimeout(resolve, 800));
+
         figma.ui.resize(450, 600);
 
         // Load the first review
@@ -322,9 +384,9 @@ figma.ui.onmessage = async (msg: {
         }
       } else {
         // No reviews needed, proceed with normal completion
-        if (duplicatedFrames.length > 0) {
-          figma.currentPage.selection = duplicatedFrames;
-          figma.viewport.scrollAndZoomIntoView(duplicatedFrames);
+        if (allDuplicatedFrames.length > 0) {
+          figma.currentPage.selection = allDuplicatedFrames;
+          figma.viewport.scrollAndZoomIntoView(allDuplicatedFrames);
           const langList = languages.join(', ');
           figma.notify(`✅ Translated to ${languages.length} language${languages.length === 1 ? '' : 's'}: ${langList}`);
         }
